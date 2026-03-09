@@ -15,6 +15,14 @@ public class PasswordValidatorTests
         var result = _validator.IsValid(password);
         Assert.That(result, Is.True, "Expected True for a valid 100-character password.");
     }
+    
+    [Test]
+    public void IsValid_ShouldReturnFalse_WhenPasswordContainsNonEnglishCharacters()
+    {
+        var password = new string('Ъ', 95) + "Ъ322!?";
+        var result = _validator.IsValid(password);
+        Assert.That(result, Is.False, "Expected False for non-English (Cyrillic) characters.");
+    }
 
     [Test]
     public void IsValid_ShouldReturnFalse_WhenPasswordIsTooShort()
@@ -22,6 +30,22 @@ public class PasswordValidatorTests
         var password = "a1A!" + new string('a', 52);
         var result = _validator.IsValid(password);
         Assert.That(result, Is.False, "Expected False for password shorter than 100 characters.");
+    }
+    
+    [Test]
+    public void IsValid_ShouldReturnFalse_WhenPasswordMissingSpecialSymbols()
+    {
+        var password = new string('a', 96) + "A322";
+        var result = _validator.IsValid(password);
+        Assert.That(result, Is.False, "Expected False when special symbols are missing.");
+    }
+
+    [Test]
+    public void IsValid_ShouldReturnTrue_WhenPasswordContainsSpaces()
+    {
+        var password = new string('a', 93) + " A322!?"; 
+        var result = _validator.IsValid(password);
+        Assert.That(result, Is.True, "Expected False when password contains spaces (based on current Regex).");
     }
 
     [Test]
@@ -46,30 +70,6 @@ public class PasswordValidatorTests
         var password = new string('a', 97) + "ww!";
         var result = _validator.IsValid(password);
         Assert.That(result, Is.False, "Expected False when numbers are missing.");
-    }
-
-    [Test]
-    public void IsValid_ShouldReturnFalse_WhenPasswordMissingSpecialSymbols()
-    {
-        var password = new string('a', 96) + "A322";
-        var result = _validator.IsValid(password);
-        Assert.That(result, Is.False, "Expected False when special symbols are missing.");
-    }
-
-    [Test]
-    public void IsValid_ShouldReturnFalse_WhenPasswordContainsNonEnglishCharacters()
-    {
-        var password = new string('Ъ', 95) + "Ъ322!?";
-        var result = _validator.IsValid(password);
-        Assert.That(result, Is.False, "Expected False for non-English (Cyrillic) characters.");
-    }
-
-    [Test]
-    public void IsValid_ShouldReturnTrue_WhenPasswordContainsSpaces()
-    {
-        var password = new string('a', 93) + " A322!?"; 
-        var result = _validator.IsValid(password);
-        Assert.That(result, Is.True, "Expected False when password contains spaces (based on current Regex).");
     }
 
     [Test]
