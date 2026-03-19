@@ -32,9 +32,9 @@ public class UserManagerTests
     [TearDown]
     public void TearDown()
     {
-        _usersRepositoryMock.VerifyAll();
-        _emailServiceMock.VerifyAll();
-        _userValidatorMock.VerifyAll();
+        _usersRepositoryMock.VerifyNoOtherCalls();
+        _emailServiceMock.VerifyNoOtherCalls();
+        _userValidatorMock.VerifyNoOtherCalls();
     }
 
     [Test]
@@ -60,7 +60,7 @@ public class UserManagerTests
             
         _userManager.CreateNewUser(_user);
 
-        CollectionAssert.AreEqual(expectedCallOrder, callOrder);
+        Assert.That(callOrder, Is.EqualTo(expectedCallOrder));
         _userValidatorMock.Verify(x => x.Validate(_user), Times.Once);
         _usersRepositoryMock.Verify(x => x.GetUser(_user.Email), Times.Once);
         _usersRepositoryMock.Verify(x => x.SaveUser(_user), Times.Once);
@@ -72,21 +72,27 @@ public class UserManagerTests
     {
         _userValidatorMock.Setup(x => x.Validate(It.IsAny<User>())).Returns((false, "error"));
 
-        var exception = Assert.Throws<InvalidUserException>(() => _userManager.CreateNewUser(_user));
-        Assert.That(exception!.Message, Is.EqualTo("error"));
+        Assert.That(() => _userManager.CreateNewUser(_user), 
+            Throws.InstanceOf<InvalidUserException>().With.Message.EqualTo("error"));
+        
         _userValidatorMock.Verify(x => x.Validate(_user), Times.Once);
     }
 
     [Test]
     public void CreateNewUser_ShouldFails_WhenUserAlreadyExists()
     {
-        _userValidatorMock.Setup(x => x.Validate(It.IsAny<User>())).Returns((true, "ok"));
-        _usersRepositoryMock.Setup(x => x.GetUser(It.IsAny<string>())).Returns(_user);
+        _userValidatorMock
+            .Setup(x => x.Validate(It.IsAny<User>()))
+            .Returns((true, "ok"));
+        _usersRepositoryMock
+            .Setup(x => x.GetUser(It.IsAny<string>()))
+            .Returns(_user);
 
-        var exception = Assert.Throws<InvalidUserException>(() => _userManager.CreateNewUser(_user));
+        Assert.That(() => _userManager.CreateNewUser(_user), 
+            Throws.InstanceOf<InvalidUserException>().With.Message.EqualTo("UserAlreadyExists"));
+        
         _userValidatorMock.Verify(x => x.Validate(_user), Times.Once());
         _usersRepositoryMock.Verify(x => x.GetUser(_user.Email), Times.Once);
-        Assert.That(exception!.Message, Is.EqualTo("UserAlreadyExists"));
     }
 
     [Test]
@@ -108,7 +114,7 @@ public class UserManagerTests
 
         _userManager.DeleteUser(_user.Email);
         
-        CollectionAssert.AreEqual(expectedCallOrder, callOrder);
+        Assert.That(callOrder, Is.EqualTo(expectedCallOrder));
         _usersRepositoryMock.Verify(x => x.GetUser(_user.Email), Times.Once);
         _usersRepositoryMock.Verify(x => x.DeleteUser(_user.Email), Times.Once);
         _emailServiceMock.Verify(x => x.SendEmail(_user.Name, "Goodbye", "Your account has been deleted."), Times.Once);
@@ -119,8 +125,10 @@ public class UserManagerTests
     {
         _usersRepositoryMock.Setup(x => x.GetUser(It.IsAny<string>()));
 
-        var exception = Assert.Throws<InvalidOperationException>(() => _userManager.DeleteUser(_user.Email));
-        Assert.That(exception!.Message, Is.EqualTo("User not found"));
+        Assert.That(() => _userManager.DeleteUser(_user.Email), 
+            Throws.InvalidOperationException.With.Message.EqualTo("User not found"));
+        
+        _usersRepositoryMock.Verify(x => x.GetUser(_user.Email), Times.Once);
     }
 
     [Test]
