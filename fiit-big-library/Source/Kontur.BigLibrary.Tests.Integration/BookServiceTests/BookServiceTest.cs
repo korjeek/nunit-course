@@ -2,6 +2,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
+using FluentAssertions.Execution;
 using Kontur.BigLibrary.Service.Contracts;
 using Kontur.BigLibrary.Service.Exceptions;
 using Kontur.BigLibrary.Service.Services.BookService;
@@ -34,12 +35,16 @@ public class BookServiceTest
         };
         
         var result = await bookService.SaveBookAsync(book, CancellationToken.None);
+        var savedBook = await bookService.GetBookAsync(result.Id!.Value, CancellationToken.None);
         
-        result.Name.Should().Be(book.Name);
-        result.Author.Should().Be(book.Author);
-        result.RubricId.Should().Be(book.RubricId);
-        result.ImageId.Should().Be(image.Id);
-        result.Description.Should().Be(book.Description);
+        using (new AssertionScope())
+        {
+            savedBook.Name.Should().Be(book.Name);
+            savedBook.Author.Should().Be(book.Author);
+            savedBook.RubricId.Should().Be(book.RubricId);
+            savedBook.ImageId.Should().Be(image.Id);
+            savedBook.Description.Should().Be(book.Description);
+        }
     }
 
     [Test]

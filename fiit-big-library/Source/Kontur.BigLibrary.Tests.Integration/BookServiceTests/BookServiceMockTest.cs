@@ -1,13 +1,15 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
+using FluentAssertions.Execution;
 using Kontur.BigLibrary.Service.Contracts;
 using Kontur.BigLibrary.Service.Events;
 using Kontur.BigLibrary.Service.Exceptions;
 using Kontur.BigLibrary.Service.Services.BookService;
 using Kontur.BigLibrary.Service.Services.BookService.Repository;
-using Kontur.BigLibrary.Service.Services.EventService;
-using Kontur.BigLibrary.Service.Services.ImageService;
+using Kontur.BigLibrary.Service.Services.EventService.Repository;
+using Kontur.BigLibrary.Service.Services.ImageService.Repository;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using NUnit.Framework;
@@ -17,44 +19,36 @@ namespace Kontur.BigLibrary.Tests.Integration.BookServiceTests;
 [NonParallelizable]
 public class BookServiceMockTest
 {
-    private IBookService _bookService;
-    private IBookRepository _bookRepositoryMock;
-    private IImageService _imageServiceMock;
-    private IEventService _eventServiceMock;
-    private ISynonymMaker _synonymMakerMock;
+    private static readonly IServiceProvider container = new ContainerForMockTests().Build();
+    
+    private readonly IBookService _bookService = container.GetRequiredService<IBookService>();
+    private readonly IBookRepository _bookRepositoryMock = container.GetRequiredService<IBookRepository>();
+    private readonly IImageRepository _imageRepositoryMock = container.GetRequiredService<IImageRepository>();
+    private readonly IEventRepository _eventRepositoryMock = container.GetRequiredService<IEventRepository>();
     
     [SetUp]
     public void Setup()
     {
-        _bookRepositoryMock = Substitute.For<IBookRepository>();
-        _imageServiceMock = Substitute.For<IImageService>();
-        _eventServiceMock = Substitute.For<IEventService>();
-        _synonymMakerMock = Substitute.For<ISynonymMaker>();
-
-        var services = new ServiceCollection();
-        services.AddScoped<IBookService, BookService>();
-        services.AddScoped(_ => _bookRepositoryMock);
-        services.AddScoped(_ => _imageServiceMock);
-        services.AddScoped(_ => _eventServiceMock);
-        services.AddScoped(_ => _synonymMakerMock);
+        _bookRepositoryMock.ClearReceivedCalls();
+        _imageRepositoryMock.ClearReceivedCalls();
+        _eventRepositoryMock.ClearReceivedCalls();
         
-        var serviceProvider = services.BuildServiceProvider();
-        _bookService = serviceProvider.GetRequiredService<IBookService>();
+        _bookRepositoryMock.GetRubricAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Rubric>(null));
+        _imageRepositoryMock.GetAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Image>(null));
     }
     
     [Test]
     public async Task SaveBookAsync_ShouldSaveBookAndPublishEvent_WhenValidBook()
     {
         const int rubricId = 1;
-        const int imageId = 1;
+        const int imageId = 100;
         const int expectedBookId = 500;
+        const string expectedSynonym = "Database_Systems_The_Complete_Book";
         
         var rubric = new Rubric { Id = rubricId, Name = "Test Rubric" };
-        var image = new Image 
-        { 
-            Id = imageId, 
-            Data = [] 
-        };
+        var image = new Image { Id = imageId, Data = [] };
         
         var book = new Book
         {
@@ -79,8 +73,8 @@ public class BookServiceMockTest
             .GetRubricAsync(rubricId, Arg.Any<CancellationToken>())
             .Returns(rubric);
         
-        _imageServiceMock
-            .GetAsync(imageId, null, Arg.Any<CancellationToken>())
+        _imageRepositoryMock
+            .GetAsync(imageId, Arg.Any<CancellationToken>())
             .Returns(image);
         
         _bookRepositoryMock
@@ -99,22 +93,29 @@ public class BookServiceMockTest
                 b.Description == book.Description), 
             Arg.Any<CancellationToken>());
         
-        await _eventServiceMock
+        await _bookRepositoryMock
             .Received(1)
-            .PublishEventAsync(Arg.Any<ChangedEvent>(), Arg.Any<CancellationToken>());
+            .SaveBookIndexAsync(
+                expectedBookId,
+                Arg.Is<string>(fts => !string.IsNullOrEmpty(fts)),
+                Arg.Is<string>(synonym => synonym == expectedSynonym),
+                Arg.Any<CancellationToken>());
         
-        result.Id.Should().Be(expectedBookId);
-        result.Name.Should().Be(book.Name);
-        result.Author.Should().Be(book.Author);
-        result.RubricId.Should().Be(book.RubricId);
-        result.ImageId.Should().Be(book.ImageId);
-        result.Description.Should().Be(book.Description);
+        await _eventRepositoryMock
+            .Received(1)
+            .SaveAsync(Arg.Any<ChangedEvent>(), Arg.Any<CancellationToken>());
+        
+        using (new AssertionScope())
+        {
+            result.Should().BeEquivalentTo(savedBook, options => options
+                .ComparingByMembers<Book>());
+        }
     }
     
     [Test]
     public async Task SaveBookAsync_ShouldThrowValidationException_WhenRubricNotExists()
     {
-        const int imageId = 1;
+        const int imageId = 100;
         const int nonExistentRubricId = -1;
         
         var image = new Image { Id = imageId, Data = [] };
@@ -132,8 +133,8 @@ public class BookServiceMockTest
             .GetRubricAsync(nonExistentRubricId, Arg.Any<CancellationToken>())
             .Returns((Rubric)null);
         
-        _imageServiceMock
-            .GetAsync(imageId, null, Arg.Any<CancellationToken>())
+        _imageRepositoryMock
+            .GetAsync(imageId, Arg.Any<CancellationToken>())
             .Returns(image);
         
         await _bookService
@@ -145,9 +146,13 @@ public class BookServiceMockTest
             .Received(0)
             .SaveBookAsync(Arg.Any<Book>(), Arg.Any<CancellationToken>());
         
-        await _eventServiceMock
+        await _bookRepositoryMock
             .Received(0)
-            .PublishEventAsync(Arg.Any<ChangedEvent>(), Arg.Any<CancellationToken>());
+            .SaveBookIndexAsync(Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        
+        await _eventRepositoryMock
+            .Received(0)
+            .SaveAsync(Arg.Any<ChangedEvent>(), Arg.Any<CancellationToken>());
     }
     
     [Test]
@@ -171,8 +176,8 @@ public class BookServiceMockTest
             .GetRubricAsync(rubricId, Arg.Any<CancellationToken>())
             .Returns(rubric);
         
-        _imageServiceMock
-            .GetAsync(nonExistentImageId, null, Arg.Any<CancellationToken>())
+        _imageRepositoryMock
+            .GetAsync(nonExistentImageId, Arg.Any<CancellationToken>())
             .Returns((Image)null);
         
         await _bookService
@@ -184,8 +189,12 @@ public class BookServiceMockTest
             .Received(0)
             .SaveBookAsync(Arg.Any<Book>(), Arg.Any<CancellationToken>());
         
-        await _eventServiceMock
+        await _bookRepositoryMock
             .Received(0)
-            .PublishEventAsync(Arg.Any<ChangedEvent>(), Arg.Any<CancellationToken>());
+            .SaveBookIndexAsync(Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        
+        await _eventRepositoryMock
+            .Received(0)
+            .SaveAsync(Arg.Any<ChangedEvent>(), Arg.Any<CancellationToken>());
     }
 }
