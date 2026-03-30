@@ -11,6 +11,7 @@ public class BookBuilder
     private int rubricId = 1;
     private int imageId = 1;
     private int? price;
+    private string description = string.Empty;
 
     public BookBuilder WithName(string? name)
     {
@@ -48,12 +49,18 @@ public class BookBuilder
         return this;
     }
 
+    public BookBuilder WithDescription(string description)
+    {
+        this.description = description;
+        return this;
+    }
+
     public Book Build() => new()
     {
         Name = name ?? $"Default_name{IntGenerator.Get()}",
         Author = author ?? $"Default_author{IntGenerator.Get()}",
         Id = id ?? IntGenerator.Get(),
-        Description = "",
+        Description =  description,
         IsDeleted = isDeleted,
         RubricId = rubricId,
         ImageId = imageId,
