@@ -1,80 +1,222 @@
-﻿using System.Collections.Concurrent;
+﻿using System;
+using System.Collections.Concurrent;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
+using FluentAssertions.Execution;
 using Kontur.BigLibrary.Service.Contracts;
 using Kontur.BigLibrary.Service.Services.BookService;
 using Kontur.BigLibrary.Service.Services.BookService.Repository;
 using Kontur.BigLibrary.Tests.Core.Helpers;
+using Kontur.BigLibrary.Tests.Core.Helpers.StringGenerator;
 using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
 
 namespace Kontur.BigLibrary.Tests.Integration.BdTests.BookRepositoryTests;
 
 [Parallelizable(ParallelScope.All)]
+[FixtureLifeCycle(LifeCycle.InstancePerTestCase)]
 public class BookRepositoryTests
 {
-    private readonly IBookRepository bookRepository;
+    private readonly IServiceProvider _container;
+    private readonly IBookRepository _bookRepository;
 
-    #region CleanUpAfterEveryTest
-
-    private ConcurrentBag<int> bookIds = new();
-
+    private readonly string _longString = StringGenerator.GetRandomString(10_000);
+    private readonly ConcurrentBag<int> _bookIds = [];
+    private readonly ConcurrentBag<Reader> _readers = [];
+    
     [TearDown]
     public async Task Teardown()
     {
-        foreach (var id in bookIds)
+        foreach (var id in _bookIds)
         {
-            await bookRepository.DeleteBookAsync(id, CancellationToken.None);
-            await bookRepository.DeleteBookIndexAsync(id, CancellationToken.None);
+            await _bookRepository.DeleteBookAsync(id, CancellationToken.None);
+            await _bookRepository.DeleteBookIndexAsync(id, CancellationToken.None);
+        }
+        foreach (var reader in _readers)
+        {
+            reader.IsDeleted = true;
+            await _bookRepository.SaveReaderAsync(reader, CancellationToken.None);
         }
     }
 
-    #endregion
-
-
     public BookRepositoryTests()
     {
-        var container = new Container().Build();
-        bookRepository = container.GetRequiredService<IBookRepository>();
+        _container = new Container()
+            .AddBookBuilder()
+            .AddReaderBuilder()
+            .Build();
+        
+        _bookRepository = _container.GetRequiredService<IBookRepository>();
     }
 
     [Test]
     public async Task GetBook_Exists_ReturnBook()
     {
-        var expectedBook = new BookBuilder().Build();
-        var book = await bookRepository.SaveBookAsync(expectedBook, CancellationToken.None);
-        await bookRepository.SaveBookIndexAsync(expectedBook.Id!.Value, expectedBook.GetTextForFts(),
-            $"book {expectedBook.Id}", CancellationToken.None);
-        bookIds.Add(expectedBook.Id.Value);
+        var expectedBook = _container
+            .GetRequiredService<BookBuilder>()
+            .Build();
+        await SaveBookForTest(expectedBook);
 
-        var actualBook = await bookRepository.GetBookAsync(expectedBook.Id.Value, CancellationToken.None);
+        var actualBook = await _bookRepository.GetBookAsync(expectedBook.Id!.Value, CancellationToken.None);
 
         actualBook.Should().BeEquivalentTo(expectedBook);
     }
 
     [Test]
-    [Parallelizable(ParallelScope.None)]
-    public async Task GetMaxBookId_Exists_ReturnBooksCount()
+    public async Task GetBook_WithLongDescription_ReturnBook()
     {
-        await CleanBooks();
-        var expectedBook = new BookBuilder().WithId(1).Build();
-        await bookRepository.SaveBookAsync(expectedBook, CancellationToken.None);
-        await bookRepository.SaveBookIndexAsync(expectedBook.Id!.Value, expectedBook.GetTextForFts(),
-            $"book {expectedBook.Id}", CancellationToken.None);
-
-        var maxId = await bookRepository.GetMaxBookIdAsync(CancellationToken.None);
-
-        maxId.Should().Be(expectedBook.Id);
+        var bookWithLongDescription = _container
+            .GetRequiredService<BookBuilder>()
+            .WithDescription(_longString)
+            .Build();
+        await SaveBookForTest(bookWithLongDescription);
+        
+        var actualBook = await _bookRepository.GetBookAsync(bookWithLongDescription.Id!.Value, CancellationToken.None);
+        
+        actualBook.Should().BeEquivalentTo(bookWithLongDescription);
     }
 
-    public async Task CleanBooks()
+    [Test]
+    public async Task GetBook_NotExists_ReturnNull()
     {
-        var books = await bookRepository.SelectBooksAsync(new BookFilter(), CancellationToken.None);
-        foreach (var book in books)
+        var book = _container
+            .GetRequiredService<BookBuilder>()
+            .Build();
+        var actualBook = await _bookRepository.GetBookAsync(book.Id!.Value, CancellationToken.None);
+        actualBook.Should().BeNull();
+    }
+    
+    [Test]
+    public async Task SelectBooks_ByName_ReturnOnlyNamedBook()
+    {
+        var uniqueBookName = StringGenerator.GetRandomString();
+        var firstBook = _container
+            .GetRequiredService<BookBuilder>()
+            .WithName(uniqueBookName)
+            .Build();
+        var secondBook = _container
+            .GetRequiredService<BookBuilder>()
+            .Build();
+        await SaveBookForTest(firstBook);
+        await SaveBookForTest(secondBook);
+
+        var bookFilter = new BookFilter { Query = uniqueBookName};
+        var actualBooks = await _bookRepository.SelectBooksAsync(bookFilter, CancellationToken.None);
+
+        using (new AssertionScope())
         {
-            await bookRepository.DeleteBookAsync(book.Id!.Value, CancellationToken.None);
-            await bookRepository.DeleteBookIndexAsync(book.Id!.Value, CancellationToken.None);
+            actualBooks.Should().ContainSingle();
+            firstBook.Name.Should().Be(actualBooks.Single().Name);
         }
+    }
+    
+    [Test]
+    public async Task SelectBooks_WithDeletedBooks_ReturnNull()
+    {
+        var bookToDelete = _container
+            .GetRequiredService<BookBuilder>()
+            .Delete()
+            .Build();
+        await SaveBookForTest(bookToDelete);
+
+        var bookFilter = new BookFilter { Query = $"book {bookToDelete.Id}" };
+        var actualBooks = await _bookRepository.SelectBooksAsync(bookFilter, CancellationToken.None);
+
+        actualBooks.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task SelectBooks_WithOrderAndOffset_ReturnBooks()
+    {
+        var prefix = StringGenerator.GetRandomString();
+        var baseId = IntGenerator.Get();
+        var firstBook = _container
+            .GetRequiredService<BookBuilder>()
+            .WithName($"{prefix} 1")
+            .WithId(baseId)
+            .Build();
+        var secondBook = _container
+            .GetRequiredService<BookBuilder>()
+            .WithName($"{prefix} 2")
+            .WithId(baseId + 1)
+            .Build();
+        var thirdBook = _container
+            .GetRequiredService<BookBuilder>()
+            .WithName($"{prefix} 3")
+            .WithId(baseId + 2)
+            .Build();   
+        await SaveBookForTest(firstBook);
+        await SaveBookForTest(secondBook);
+        await SaveBookForTest(thirdBook);
+
+        var bookFilter = new BookFilter
+        {
+            Query = prefix,
+            Order = BookOrder.ByLastAdding,
+            Offset = 1,
+            Limit = 2
+        };
+        var actualBooks = await _bookRepository.SelectBooksAsync(bookFilter, CancellationToken.None);
+
+        actualBooks.Select(x => x.Id).Should().Equal(secondBook.Id, firstBook.Id);
+    }
+
+    [Test]
+    public async Task GetBookSummaryBySynonym_WithSelectBooksSummary_ShouldEquals()
+    {
+        var book = _container
+            .GetRequiredService<BookBuilder>()
+            .Build();
+        await SaveBookForTest(book);
+        var synonym = $"book {book.Id}";
+        
+        var filter = new BookFilter { Synonym = synonym};
+        var booksSummary = await _bookRepository.SelectBooksSummaryAsync(filter, CancellationToken.None);
+        var expectedSummary = await _bookRepository.GetBookSummaryBySynonymAsync(synonym, CancellationToken.None);
+        
+        using (new AssertionScope())
+        {
+            booksSummary.Should().ContainSingle();
+            expectedSummary.Should().BeEquivalentTo(booksSummary.Single());
+        }
+    }
+
+    [Test]
+    public async Task GetBookSummaryBySynonym_WithBusyBook_ReturnBook()
+    {
+        var freeBook = _container
+            .GetRequiredService<BookBuilder>()
+            .Build();
+        var busyBook = _container
+            .GetRequiredService<BookBuilder>()
+            .Build();
+        await SaveBookForTest(freeBook);
+        await SaveBookForTest(busyBook);
+        
+        var reader = _container
+            .GetRequiredService<ReaderBuilder>()
+            .WithBook(busyBook.Id!.Value)
+            .Build();
+        await SaveReaderForTest(reader);
+        
+        var bookSummary = await _bookRepository.GetBookSummaryBySynonymAsync($"book {busyBook.Id}", CancellationToken.None);
+        
+        bookSummary.IsBusy.Should().BeTrue();
+    }
+
+    private async Task SaveBookForTest(Book book)
+    {
+        await _bookRepository.SaveBookAsync(book, CancellationToken.None);
+        await _bookRepository.SaveBookIndexAsync(book.Id!.Value, book.GetTextForFts(),
+            $"book {book.Id!.Value}", CancellationToken.None);
+        _bookIds.Add(book.Id.Value);
+    }
+
+    private async Task SaveReaderForTest(Reader reader)
+    {
+        await _bookRepository.SaveReaderAsync(reader, CancellationToken.None);
+        _readers.Add(reader);
     }
 }
