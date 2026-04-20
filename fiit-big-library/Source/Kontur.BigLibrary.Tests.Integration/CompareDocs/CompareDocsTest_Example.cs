@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -158,5 +160,91 @@ public class CompareDocsTestExample
             Order = order,
             Offset = offset
         };
+    }
+    
+    [Test]
+    public async Task Should_Have_ExpectedOrder_XDocumentAndLinq()
+    {
+        const string query = "OrderTest_LINQ";
+        var createdBooks = await CreateBooksWithPrefix(query);
+        
+        var expectedTitles = createdBooks
+            .OrderByDescending(b => b.Id)
+            .Select(b => b.Name)
+            .ToList();
+        
+        var filter = CreateFilter(query: query, limit: 5, order: BookOrder.ByLastAdding);
+        var xmlResult = await bookService.ExportBooksToXmlAsync(filter, CancellationToken.None);
+        var xDoc = XDocument.Parse(xmlResult);
+        var actualTitles = xDoc
+            .Descendants("Book")
+            .Elements("Title")
+            .Select(t => t.Value)
+            .ToList();
+
+        actualTitles.Should().Equal(expectedTitles);
+    }
+
+    [Test]
+    public async Task Should_Have_ExpectedOrder_Regex()
+    {
+        const string query = "OrderTest_Regex";
+        var createdBooks = await CreateBooksWithPrefix(query);
+
+        var expectedTitles = createdBooks
+            .OrderByDescending(b => b.Id)
+            .Select(b => b.Name)
+            .ToList();
+        
+        var filter = CreateFilter(query: query, limit: 5, order: BookOrder.ByLastAdding);
+        var xmlResult = await bookService.ExportBooksToXmlAsync(filter, CancellationToken.None);
+        var matches = Regex.Matches(xmlResult, @"<Title>(.*?)</Title>");
+        var actualTitles = matches.Select(m => m.Groups[1].Value).ToList();
+
+        actualTitles.Should().Equal(expectedTitles);
+    }
+
+    [Test]
+    public async Task Should_Have_ExpectedOrder_FullXDocumentComparison()
+    {
+        const string query = "OrderTest_Full";
+        var createdBooks = await CreateBooksWithPrefix(query);
+        
+        var orderedBooks = createdBooks.OrderByDescending(b => b.Id).ToList();
+        var exportTime = DateTime.Now;
+        var expectedDoc = new XDocument(
+            new XElement("Books",
+                new XElement("ExportTime", exportTime.ToString("yyyy-MM-dd HH:mm:ss")),
+                orderedBooks.Select(book =>
+                    new XElement("Book",
+                        new XElement("Title", book.Name),
+                        new XElement("Author", book.Author),
+                        new XElement("Description", book.Description),
+                        new XElement("RubricId", book.RubricId),
+                        new XElement("ImageId", book.ImageId.ToString()),
+                        new XElement("Price", book.Price),
+                        new XElement("IsBusy", "false")
+                    )
+                )
+            )
+        );
+        
+        var filter = CreateFilter(query: query, limit: 5, order: BookOrder.ByLastAdding);
+        var xmlResult = await bookService.ExportBooksToXmlAsync(filter, CancellationToken.None);
+        var actualDoc = XDocument.Parse(xmlResult);
+        
+        actualDoc.Should().BeEquivalentTo(expectedDoc);
+    }
+
+    private async Task<List<Book>> CreateBooksWithPrefix(string prefix = "", int count = 5)
+    {
+        var createdBooks = new List<Book>();
+        for (var i = 1; i <= count; i++)
+        {
+            var book = await CreateBook($"{prefix} {i}");
+            createdBooks.Add(book);
+        }
+
+        return createdBooks;
     }
 }
