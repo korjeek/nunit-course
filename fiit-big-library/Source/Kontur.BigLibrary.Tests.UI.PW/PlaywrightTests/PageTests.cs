@@ -1,39 +1,23 @@
 ﻿using FluentAssertions;
 using Microsoft.Playwright;
+using Kontur.BigLibrary.Tests.UI.PW.PlaywrightCore;
 
 namespace Kontur.BigLibrary.Tests.UI.PW.PlaywrightTests;
 
-public class PageTests
+[NonParallelizable]
+[WithAuth("test@mail.com", "Test123456!")]
+public class PageTests : TestBase
 {
     private IPage _page;
     
-    [OneTimeSetUp]
-    public async Task OneTimeSetUpAsync()
+    [SetUp]
+    public async Task SetUp()
     {
-        var playwright = await Playwright.CreateAsync();
-        var launchOptions = new BrowserTypeLaunchOptions { Headless = false };
-        var browser = await playwright.Chromium.LaunchAsync(launchOptions);
-        var context = await browser.NewContextAsync();
-        _page = await context.NewPageAsync();
-        
-        await _page.GotoAsync("http://localhost:5000/");
-        await Login();
+        _page = await Navigation.GoToUrlAsync("http://localhost:5000/");
     }
 
-    private async Task Login()
-    {
-        var email = _page.Locator("input#email[type=email]");
-        await email.FillAsync("test@mail.com");
-        
-        var password = _page.Locator("input#password[type=password]");
-        await password.FillAsync("Test123456!");
-        
-        var registrationButton = _page.Locator("button[type=submit]");
-        await registrationButton.ClickAsync();
-    }
-    
     [Test]
-    public async Task BooksListPage_Success()
+    public async Task BooksList_page_Success()
     {
         var searchString = _page.GetByPlaceholder("найти по названию, автору или рубрике");
         await searchString.FillAsync("Оптимизация игр");
@@ -55,13 +39,20 @@ public class PageTests
     }
 
     [Test]
-    public async Task SecondAvailableBook_Fail()
+    public async Task BookListToggle_Success()
     {
-        var rubricMenu = _page.Locator("input[type='checkbox']");
-        await rubricMenu.ClickAsync();
+        var toggleLabel = _page.Locator("label:has(input[type='checkbox'])");
+        await toggleLabel.ClickAsync();
         
-        var rubricLinks = _page.Locator("a[href^='/rubric/']");
-        await Assertions.Expect(rubricLinks).ToHaveCountAsync(35); 
+        var toggleCheckbox = _page.Locator("input[type='checkbox']");
+        await Assertions.Expect(toggleCheckbox).ToBeCheckedAsync();
+        
+        var takenBookLabels = _page.Locator("[data-tid^='bookItem'] [data-tid='StateLabelFree']", new()
+        {
+            HasText = "Занята"
+        });
+        
+        await Assertions.Expect(takenBookLabels).ToHaveCountAsync(0);
     }
 
     [Test]
@@ -70,16 +61,12 @@ public class PageTests
         var allBooks = _page.Locator("a[data-tid='bookItem-Optimizatsiya_igr_v_Unity_5']");
         await allBooks.ClickAsync();
         
-        await _page
-            .Locator("button:has-text('Взять книгу')")
-            .ClickAsync();
+        await _page.Locator("button:has-text('Взять книгу')").ClickAsync();
 
         var stateLabel = _page.Locator("div[data-tid='StateLabelBusy']");
         await Assertions.Expect(stateLabel).ToHaveTextAsync("ЗАНЯТА");
         
-        await _page
-            .Locator("button:has-text('Вернуть книгу')")
-            .ClickAsync();
+        await _page.Locator("button:has-text('Вернуть книгу')").ClickAsync();
     }
 
     [Test]
@@ -88,8 +75,7 @@ public class PageTests
         var allBooks = _page.Locator("a[data-tid='bookItem-Optimizatsiya_igr_v_Unity_5']");
         await allBooks.ClickAsync();
         
-        await _page.Locator("a:has-text('Все книги')")
-            .ClickAsync(new() { Force = true });
+        await _page.Locator("a:has-text('Все книги')").ClickAsync(new() { Force = true });
         
         var mainTitle = _page.Locator("a[data-tid='titleLink']");
         var mainTitleText = await mainTitle.TextContentAsync();
@@ -100,8 +86,7 @@ public class PageTests
     [Test]
     public async Task ModalWindowTitle_Success()
     {
-        await _page.Locator("button[data-tid='book-add']")
-            .ClickAsync();
+        await _page.Locator("button[data-tid='book-add']").ClickAsync();
         
         var modal = _page.Locator("h5.modal-title");
         await Assertions.Expect(modal).ToBeVisibleAsync();
@@ -110,8 +95,7 @@ public class PageTests
     [Test]
     public async Task ModalWindowFieldName_Success()
     {
-        await _page.Locator("button[data-tid='book-add']")
-            .ClickAsync();
+        await _page.Locator("button[data-tid='book-add']").ClickAsync();
         
         var fieldName = _page.Locator("label[for='bookName']");
         await Assertions.Expect(fieldName).ToBeVisibleAsync();
@@ -123,22 +107,17 @@ public class PageTests
     [Test]
     public async Task ModalWindowFieldValue_Success()
     {
-        // 1. Считаем сколько книг СЕЙЧАС (до добавления)
-        var allBooksLocator = _page.Locator("a[data-tid^='bookItem']");
-        var countBefore = await allBooksLocator.CountAsync();
-    
+        const string uniqueName = "test-book";
         await _page.Locator("button[data-tid='book-add']").ClickAsync();
-    
-        // ... заполнение полей ...
-        var nameField = _page.Locator("input[id='bookName']");
+        
+        await _page.Locator("input[id='bookName']").FillAsync($"{uniqueName}");
         await _page.Locator("input[id='bookAuthor']").FillAsync("tester");
         await _page.Locator("textarea[id='bookDescription']").FillAsync("description");
-        await _page.Locator("#bookImageFile").SetInputFilesAsync(Path.Combine(AppContext.BaseDirectory, "../../../Helpers/Files/image.jpg"));
         
-        await _page.Locator("button[data-tid='add-book-button']").ClickAsync();
-    
-        // 2. Используем Expect с автоматическим ожиданием обновления списка
-        // Мы ожидаем, что количество станет countBefore + 1
-        await Assertions.Expect(allBooksLocator).ToHaveCountAsync(countBefore + 1);
+        await _page.Locator("#bookImageFile")
+            .SetInputFilesAsync(TestData.ValidImagePath!);
+        
+        var newBook = _page.Locator($"a[data-tid^='bookItem']:has-text('{uniqueName}')");
+        await Assertions.Expect(newBook).ToBeVisibleAsync();
     }
 }
