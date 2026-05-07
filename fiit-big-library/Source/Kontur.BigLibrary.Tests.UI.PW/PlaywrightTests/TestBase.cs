@@ -1,7 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using Kontur.BigLibrary.Tests.UI.PW.Helpers;
 using Kontur.BigLibrary.Tests.UI.PW.PageObjects.Factories;
-using Kontur.BigLibrary.Tests.UI.PW.PageObjects.Pages;
 using Kontur.BigLibrary.Tests.UI.PW.PlaywrightCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Playwright;
@@ -112,12 +111,16 @@ public abstract class TestBase
         var path = await video.PathAsync();
         TestContext.WriteLine($"Video: {path}");
     }
-    
-    public async Task LogoutViaTokenAsync()
+
+    protected async Task LogoutViaTokenAsync()
     {
         var page = await PwPageGetter.GetAsync(); 
-    
         await page.EvaluateAsync("() => localStorage.removeItem('jwtToken')");
-        await Navigation.GoToPageAsync<LoginPage>();
+    }
+    
+    protected async Task LoginViaTokenAsync(string token)
+    {
+        var page = await PwPageGetter.GetAsync(); 
+        await page.EvaluateAsync($"localStorage.setItem('authToken', '{token}')");
     }
 }

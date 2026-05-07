@@ -90,9 +90,9 @@ public class BooksTestDataService
         _booksApi.CheckoutBook(bookId.ToString(), email, token);
     }
 
-    public BookSummary[] GetAllBooks()
+    public BookSummary[] GetAllBooks(string? email, string? password)
     {
-        var token = CreateUserAndGetToken(StringGenerator.GetEmail(), StringGenerator.GetValidPassword());
+        var token = CreateUserAndGetToken(email ?? StringGenerator.GetEmail(), password ?? StringGenerator.GetValidPassword());
         var clientResult = _booksApi.GetAllBooksFromLibrary(token);
         return JsonConvert.DeserializeObject<BookSummary[]>(clientResult.Content!);
     }

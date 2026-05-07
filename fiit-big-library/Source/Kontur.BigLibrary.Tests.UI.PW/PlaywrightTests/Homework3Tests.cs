@@ -17,9 +17,6 @@ public class Homework3Tests: TestBase
         var bookAuthor = StringGenerator.GetRandomString();
         var book = TestData.CreateBook(bookName, bookAuthor);
         
-        var user2Email = "user2@test.com";
-        var user2Password = "Password123!";
-        
         var mainPage = await Navigation.GoToPageAsync<MainPage>();
         var bookModal = await mainPage.AddBookButton.ClickAndOpenModalAsync<AddBookModal>();
         
@@ -27,8 +24,8 @@ public class Homework3Tests: TestBase
         
         await LogoutViaTokenAsync();
         
-        var loginPage = await Navigation.GoToPageAsync<LoginPage>();
-        await loginPage.LoginAsync(user2Email, user2Password);
+        var user2Token = TestData.GetOrCreateUserAndGetToken("user2@test.com", "Password123!");
+        await LoginViaTokenAsync(user2Token);
         
         mainPage = await Navigation.GoToPageAsync<MainPage>();
         
@@ -50,14 +47,9 @@ public class Homework3Tests: TestBase
     
         await bookModal.FillAndSubmitAsync(book, "Администрирование", TestData.ValidImagePath!);
         
-        var token = TestData.GetOrCreateUserAndGetToken("test@mail.com", "Test123456!");
-        var apiClient = ServiceProvider.GetRequiredService<BooksApiClient>();
-        var response = apiClient.GetAllBooksFromLibrary(token);
-    
-        Assert.Multiple(() =>
-        {
-            Assert.That(response.IsSuccessful, Is.True, "API запрос не удался");
-            Assert.That(response.Content, Does.Contain(bookName), "Книга не найдена в API");
-        });
+        var books = TestData.GetAllBooks("test@mail.com", "Test123456!")
+            .Select(b => b.Name);
+
+        Assert.That(books, Does.Contain(bookName));
     }
 }
