@@ -15,4 +15,10 @@ public class Input : ControlBase
         await Locator.ClearAsync();
         await Locator.FillAsync(text);
     }
+
+    public async Task<bool> IsValid()
+    {
+        var classValue = await GetAttributeValueAsync("class");
+        return classValue == "form-control ";
+    }
 }
