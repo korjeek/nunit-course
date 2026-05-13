@@ -28,4 +28,11 @@ public class LoginPage : PageBase
     public Button SignInButton => ControlFactory.Create<Button>(Page.Locator("[type=submit]"));
     public Checkbox RememberMeCheckbox => ControlFactory.Create<Checkbox>(Page.Locator("[id='rememberMe']"));
     public Link RegistrationLink => ControlFactory.Create<Link>(Page.Locator("a[href='/register']"));
+    
+    public async Task LoginAsync(string email, string password)
+    {
+        await Email.FillAsync(email);
+        await Password.FillAsync(password);
+        await SignInButton.ClickAsync();
+    }
 }

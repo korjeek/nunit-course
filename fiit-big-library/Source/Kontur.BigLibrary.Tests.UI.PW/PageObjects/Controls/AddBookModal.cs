@@ -1,4 +1,5 @@
-﻿using Kontur.BigLibrary.Tests.UI.PW.PageObjects.Controls.Base;
+﻿using Kontur.BigLibrary.Service.Contracts;
+using Kontur.BigLibrary.Tests.UI.PW.PageObjects.Controls.Base;
 using Kontur.BigLibrary.Tests.UI.PW.PageObjects.Factories;
 using Microsoft.Playwright;
 
@@ -31,4 +32,14 @@ public class AddBookModal : ModalBase<AddBookModal>, IModal
     public Label ImageInvalidFeedback => ControlFactory.Create<Label>(Locator.Locator("[id='bookImageFile-invalid-feedback']"));
     public Label PriceInvalidFeedback => ControlFactory.Create<Label>(Locator.Locator("[id='bookPrice-invalid-feedback']"));
     
+    public async Task FillAndSubmitAsync(Book book, string rubric, string imagePath)
+    {
+        await NameInput.FillAsync(book.Name);
+        await AuthorInput.FillAsync(book.Author);
+        await DescriptionInput.FillAsync(book.Description);
+        await RubricDropdown.SelectByText(rubric);
+        await UploadImage.SetInputFilesAsync(imagePath);
+        await AddBookSubmit.ClickAsync();
+    }
+
 }

@@ -111,4 +111,16 @@ public abstract class TestBase
         var path = await video.PathAsync();
         TestContext.WriteLine($"Video: {path}");
     }
+
+    protected async Task LogoutViaTokenAsync()
+    {
+        var page = await PwPageGetter.GetAsync(); 
+        await page.EvaluateAsync("() => localStorage.removeItem('jwtToken')");
+    }
+    
+    protected async Task LoginViaTokenAsync(string token)
+    {
+        var page = await PwPageGetter.GetAsync(); 
+        await page.EvaluateAsync($"localStorage.setItem('authToken', '{token}')");
+    }
 }
